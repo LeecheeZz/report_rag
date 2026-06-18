@@ -43,6 +43,7 @@ class SearchSession:
             print(f"Loading recall model {manifest['model']}", flush=True)
             self.encoder = BgeEncoder(manifest["model"], use_fp16=not args.no_fp16)
             self.faiss_index = faiss.read_index(str(self.index_dir / "vectors.faiss"))
+            self.configure_faiss_index(manifest)
 
         self.reranker = None
         if args.rerank:
@@ -54,6 +55,15 @@ class SearchSession:
             print(f"Loading generator {args.llm_model}", flush=True)
             self.generator = QwenGenerator(args.llm_model, use_fp16=not args.no_fp16)
 
+    def configure_faiss_index(self, manifest: dict) -> None:
+        if self.faiss_index is None:
+            return
+        index_type = manifest.get("index_type", "flat")
+        if index_type == "ivf":
+            self.faiss_index.nprobe = self.args.ivf_nprobe
+        elif index_type == "hnsw":
+            self.faiss_index.hnsw.efSearch = self.args.hnsw_ef_search
+
     def search(self, query: str) -> tuple[list[dict], str | None]:
         args = self.args
         bm25_scores = self.bm25.scores(lexical_tokens(query))
@@ -63,6 +73,7 @@ class SearchSession:
             if self.encoder is None or self.faiss_index is None:
                 raise RuntimeError("Vector search requested but vector index is not loaded.")
             query_vector = normalize_vectors(self.encoder.encode_query(query))
+            vector_scores.fill(-1.0)
             scores, indices = self.faiss_index.search(query_vector, len(self.chunks))
             for score, index in zip(scores[0], indices[0]):
                 if index >= 0:

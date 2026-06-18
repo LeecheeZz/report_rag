@@ -64,6 +64,21 @@ index/
   manifest.json
 ```
 
+默认构建 Flat 索引。也可以指定 FAISS 索引类型用于对比：
+
+```bash
+python rag_pipeline.py build --index-dir ./index_flat --index-type flat
+
+python rag_pipeline.py build --index-dir ./index_ivf \
+  --index-type ivf \
+  --ivf-nlist 256
+
+python rag_pipeline.py build --index-dir ./index_hnsw \
+  --index-type hnsw \
+  --hnsw-m 32 \
+  --hnsw-ef-construction 200
+```
+
 ## 检索
 
 纯向量召回：
@@ -73,6 +88,20 @@ python rag_pipeline.py search "传统脑磁图装机量有多少？" \
   --index-dir ./index \
   --route vector \
   --top-k 5
+```
+
+IVF 和 HNSW 可以在查询时调整搜索强度：
+
+```bash
+python rag_pipeline.py search "传统脑磁图装机量有多少？" \
+  --index-dir ./index_ivf \
+  --route vector \
+  --ivf-nprobe 16
+
+python rag_pipeline.py search "传统脑磁图装机量有多少？" \
+  --index-dir ./index_hnsw \
+  --route vector \
+  --hnsw-ef-search 64
 ```
 
 纯 BM25：

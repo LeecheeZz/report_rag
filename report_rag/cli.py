@@ -25,6 +25,8 @@ def add_search_arguments(
     parser.add_argument("--vector-weight", type=float, default=0.65)
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--max-chars", type=int, default=800)
+    parser.add_argument("--ivf-nprobe", type=int, default=16)
+    parser.add_argument("--hnsw-ef-search", type=int, default=64)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-fp16", action="store_true")
     parser.add_argument("--rerank", action="store_true")
@@ -56,6 +58,15 @@ def create_parser() -> argparse.ArgumentParser:
     build.add_argument("--header-ratio", type=float, default=0.08)
     build.add_argument("--footer-ratio", type=float, default=0.08)
     build.add_argument("--repeated-page-ratio", type=float, default=0.35)
+    build.add_argument(
+        "--index-type",
+        choices=["flat", "ivf", "hnsw"],
+        default="flat",
+        help="FAISS index type for vector recall.",
+    )
+    build.add_argument("--ivf-nlist", type=int, default=256)
+    build.add_argument("--hnsw-m", type=int, default=32)
+    build.add_argument("--hnsw-ef-construction", type=int, default=200)
     build.add_argument("--no-fp16", action="store_true")
     build.set_defaults(handler=build_index)
 
@@ -94,6 +105,17 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error("--context-chunks must be greater than 0")
     if hasattr(args, "temperature") and args.temperature < 0:
         parser.error("--temperature must be greater than or equal to 0")
+    if hasattr(args, "ivf_nprobe") and args.ivf_nprobe <= 0:
+        parser.error("--ivf-nprobe must be greater than 0")
+    if hasattr(args, "hnsw_ef_search") and args.hnsw_ef_search <= 0:
+        parser.error("--hnsw-ef-search must be greater than 0")
+    if getattr(args, "command", None) == "build":
+        if args.ivf_nlist <= 0:
+            parser.error("--ivf-nlist must be greater than 0")
+        if args.hnsw_m <= 0:
+            parser.error("--hnsw-m must be greater than 0")
+        if args.hnsw_ef_construction <= 0:
+            parser.error("--hnsw-ef-construction must be greater than 0")
     if getattr(args, "command", None) == "eval":
         if args.generate:
             parser.error("eval does not support --generate")
