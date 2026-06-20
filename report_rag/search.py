@@ -9,7 +9,12 @@ from typing import Sequence
 import numpy as np
 
 from .bm25 import BM25Index
-from .generation import QwenGenerator
+from .generation import (
+    UNCERTAIN_ANSWER,
+    QwenGenerator,
+    format_citation_sources,
+    validate_citations,
+)
 from .models import BgeEncoder, BgeReranker
 from .storage import read_jsonl
 from .text_utils import lexical_tokens
@@ -74,7 +79,16 @@ class SearchSession:
                 raise RuntimeError("Vector search requested but vector index is not loaded.")
             query_vector = normalize_vectors(self.encoder.encode_query(query))
             vector_scores.fill(-1.0)
-            scores, indices = self.faiss_index.search(query_vector, len(self.chunks))
+            if args.route == "vector":
+                search_k = args.top_k
+                if args.rerank:
+                    search_k = max(search_k, args.rerank_top_n)
+            else:
+                search_k = len(self.chunks)
+            # faiss_start = time.perf_counter()
+            scores, indices = self.faiss_index.search(query_vector, search_k)
+            # faiss_elapsed = time.perf_counter() - faiss_start
+            # print(f"FAISS search time: {faiss_elapsed:.6f}s")
             for score, index in zip(scores[0], indices[0]):
                 if index >= 0:
                     vector_scores[index] = score
@@ -136,15 +150,56 @@ class SearchSession:
         if args.generate:
             if self.generator is None:
                 raise RuntimeError("Generation requested but generator is not loaded.")
-            answer = self.generator.generate_answer(
-                query,
-                results,
-                args.context_chunks,
-                args.max_input_tokens,
-                args.max_new_tokens,
-                args.temperature,
-            )
+            if is_low_confidence(results, args):
+                answer = UNCERTAIN_ANSWER
+            else:
+                answer = self.generator.generate_answer(
+                    query,
+                    results,
+                    args.context_chunks,
+                    args.max_input_tokens,
+                    args.max_new_tokens,
+                    args.temperature,
+                )
+                if args.citation_check and not validate_citations(
+                    answer,
+                    results,
+                    args.context_chunks,
+                ):
+                    answer = UNCERTAIN_ANSWER
+                else:
+                    answer = format_citation_sources(
+                        answer,
+                        results,
+                        args.context_chunks,
+                    )
         return results, answer
+
+
+def is_low_confidence(results: Sequence[dict], args: argparse.Namespace) -> bool:
+    if not results:
+        return True
+
+    if args.rerank:
+        threshold = args.min_rerank_score
+        scores = [
+            result["rerank_score"]
+            for result in results[: args.context_chunks]
+            if result["rerank_score"] is not None
+        ]
+    else:
+        threshold = args.min_recall_score
+        scores = [
+            result["recall_score"]
+            for result in results[: args.context_chunks]
+            if result["recall_score"] is not None
+        ]
+
+    if threshold is None:
+        return False
+    if not scores:
+        return True
+    return max(scores) < threshold
 
 
 def search_index(args: argparse.Namespace) -> None:

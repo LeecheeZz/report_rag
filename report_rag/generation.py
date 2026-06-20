@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Sequence
 
 from .text_utils import normalize_text
+
+UNCERTAIN_ANSWER = "我不确定"
+CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
 
 def build_generation_prompt(
@@ -19,11 +23,57 @@ def build_generation_prompt(
     context = "\n\n".join(contexts)
     return (
         "你是一个严谨的行业研报问答助手。请只根据给定资料回答问题，"
-        "不要编造资料中没有的信息；如果资料不足，请明确说明。\n\n"
+        "不要编造资料中没有的信息。\n"
+        "每个事实性结论后必须标注证据编号，例如（证据[1]）。"
+        "只能引用资料中存在的编号，不能引用不存在的编号。"
+        f"如果资料不足以回答问题，只回答“{UNCERTAIN_ANSWER}”。\n\n"
         f"资料:\n{context}\n\n"
         f"问题: {query}\n\n"
         "回答:"
     )
+
+
+def extract_citation_numbers(answer: str) -> set[int]:
+    return {int(match) for match in CITATION_PATTERN.findall(answer)}
+
+
+def is_uncertain_answer(answer: str) -> bool:
+    return answer.strip().startswith(UNCERTAIN_ANSWER)
+
+
+def validate_citations(
+    answer: str,
+    results: Sequence[dict],
+    context_chunks: int,
+) -> bool:
+    if is_uncertain_answer(answer):
+        return True
+
+    citations = extract_citation_numbers(answer)
+    max_reference = min(context_chunks, len(results))
+    if not citations or max_reference <= 0:
+        return False
+    return all(1 <= citation <= max_reference for citation in citations)
+
+
+def format_citation_sources(
+    answer: str,
+    results: Sequence[dict],
+    context_chunks: int,
+) -> str:
+    citations = sorted(extract_citation_numbers(answer))
+    max_reference = min(context_chunks, len(results))
+    lines = []
+    for citation in citations:
+        if 1 <= citation <= max_reference:
+            result = results[citation - 1]
+            lines.append(
+                f"[{citation}] {result['source']}  pages:{result['pages']}  "
+                f"chunk_id:{result['chunk_id']}"
+            )
+    if not lines:
+        return answer
+    return f"{answer}\n\n引用来源:\n" + "\n".join(lines)
 
 
 class QwenGenerator:

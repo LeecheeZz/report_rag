@@ -39,6 +39,25 @@ def add_search_arguments(
     parser.add_argument("--max-input-tokens", type=int, default=6000)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--min-recall-score",
+        type=float,
+        default=0.3,
+        help="Refuse generation when all context recall scores are below this value.",
+    )
+    parser.add_argument(
+        "--min-rerank-score",
+        type=float,
+        default=0.0,
+        help="Refuse generation when all context rerank scores are below this value.",
+    )
+    parser.add_argument(
+        "--no-citation-check",
+        dest="citation_check",
+        action="store_false",
+        help="Disable citation validation for generated answers.",
+    )
+    parser.set_defaults(citation_check=True)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -105,6 +124,9 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error("--context-chunks must be greater than 0")
     if hasattr(args, "temperature") and args.temperature < 0:
         parser.error("--temperature must be greater than or equal to 0")
+    if hasattr(args, "min_recall_score") and args.min_recall_score is not None:
+        if args.min_recall_score < 0:
+            parser.error("--min-recall-score must be greater than or equal to 0")
     if hasattr(args, "ivf_nprobe") and args.ivf_nprobe <= 0:
         parser.error("--ivf-nprobe must be greater than 0")
     if hasattr(args, "hnsw_ef_search") and args.hnsw_ef_search <= 0:
