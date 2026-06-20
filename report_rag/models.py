@@ -11,7 +11,8 @@ class BgeEncoder:
             from FlagEmbedding import FlagModel
         except ImportError as exc:
             raise RuntimeError(
-                "Missing FlagEmbedding. Install dependencies before building/searching."
+                "Failed to import FlagEmbedding for embedding. "
+                f"Check that FlagEmbedding and its dependencies are installed: {exc}"
             ) from exc
         self.model = FlagModel(
             model_name,
@@ -36,7 +37,8 @@ class BgeReranker:
             from FlagEmbedding import FlagReranker
         except ImportError as exc:
             raise RuntimeError(
-                "Missing FlagEmbedding. Install dependencies before reranking."
+                "Failed to import FlagEmbedding for reranking. "
+                f"Check that FlagEmbedding and its dependencies are installed: {exc}"
             ) from exc
         self.model = FlagReranker(model_name, use_fp16=use_fp16)
 

@@ -48,7 +48,7 @@ def add_search_arguments(
     parser.add_argument(
         "--min-rerank-score",
         type=float,
-        default=0.0,
+        default=-2.0,
         help="Refuse generation when all context rerank scores are below this value.",
     )
     parser.add_argument(
@@ -109,7 +109,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     add_search_arguments(evaluate, require_query=False)
     evaluate.add_argument("--eval-set", default="eval_set.jsonl")
-    evaluate.add_argument("--output", default="eval_results_hybrid.jsonl")
+    evaluate.add_argument("--output", default="eval_results.jsonl")
     evaluate.set_defaults(handler=evaluate_retrieval)
     
     return parser

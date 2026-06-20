@@ -6,3 +6,5 @@ jieba>=0.42,<1
 numpy>=1.26,<2
 transformers==4.57.1
 tokenizers==0.22.1
+gradio>=4,<6
+huggingface-hub>=0.34,<1.0

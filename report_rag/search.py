@@ -150,56 +150,80 @@ class SearchSession:
         if args.generate:
             if self.generator is None:
                 raise RuntimeError("Generation requested but generator is not loaded.")
-            if is_low_confidence(results, args):
+            context_results = generation_context_results(results, args)
+            if not context_results:
                 answer = UNCERTAIN_ANSWER
             else:
                 answer = self.generator.generate_answer(
                     query,
-                    results,
-                    args.context_chunks,
+                    context_results,
+                    len(context_results),
                     args.max_input_tokens,
                     args.max_new_tokens,
                     args.temperature,
                 )
                 if args.citation_check and not validate_citations(
                     answer,
-                    results,
-                    args.context_chunks,
+                    context_results,
+                    len(context_results),
                 ):
+                    print(
+                        "\n=== LLM Answer rejected === citation validation failed",
+                        flush=True,
+                    )
+                    print(f"Raw answer: {answer}", flush=True)
                     answer = UNCERTAIN_ANSWER
                 else:
                     answer = format_citation_sources(
                         answer,
-                        results,
-                        args.context_chunks,
+                        context_results,
+                        len(context_results),
                     )
         return results, answer
 
 
 def is_low_confidence(results: Sequence[dict], args: argparse.Namespace) -> bool:
-    if not results:
-        return True
+    return not generation_context_results(results, args)
 
-    if args.rerank:
-        threshold = args.min_rerank_score
-        scores = [
-            result["rerank_score"]
-            for result in results[: args.context_chunks]
-            if result["rerank_score"] is not None
-        ]
-    else:
-        threshold = args.min_recall_score
-        scores = [
-            result["recall_score"]
-            for result in results[: args.context_chunks]
-            if result["recall_score"] is not None
-        ]
 
-    if threshold is None:
-        return False
-    if not scores:
-        return True
-    return max(scores) < threshold
+def generation_context_results(
+    results: Sequence[dict],
+    args: argparse.Namespace,
+) -> list[dict]:
+    context_results = []
+    for result in results:
+        if passes_generation_thresholds(result, args):
+            context_results.append(result)
+        if len(context_results) >= args.context_chunks:
+            break
+    return context_results
+
+
+def passes_generation_thresholds(result: dict, args: argparse.Namespace) -> bool:
+    return not llm_exclusion_reasons(result, args)
+
+
+def llm_exclusion_reasons(result: dict, args: argparse.Namespace) -> list[str]:
+    reasons = []
+    if args.min_recall_score is not None:
+        recall_score = result.get("recall_score")
+        if recall_score is None:
+            reasons.append("recall score is missing")
+        elif recall_score < args.min_recall_score:
+            reasons.append(
+                f"recall score {recall_score:.4f} < threshold {args.min_recall_score:.4f}"
+            )
+
+    if args.rerank and args.min_rerank_score is not None:
+        rerank_score = result.get("rerank_score")
+        if rerank_score is None:
+            reasons.append("rerank score is missing")
+        elif rerank_score < args.min_rerank_score:
+            reasons.append(
+                f"rerank score {rerank_score:.4f} < threshold {args.min_rerank_score:.4f}"
+            )
+
+    return reasons
 
 
 def search_index(args: argparse.Namespace) -> None:
@@ -271,7 +295,23 @@ def print_search_output(
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
+    fed_context_ids = set()
+    if getattr(args, "generate", False):
+        fed_context_ids = {
+            result["chunk_id"]
+            for result in generation_context_results(results, args)
+        }
+
     for result in results:
+        if result["chunk_id"] in fed_context_ids:
+            print("\n=== Fed into the LLM ===")
+        else:
+            if getattr(args, "generate", False):
+                reasons = llm_exclusion_reasons(result, args)
+                reason = "; ".join(reasons) if reasons else "context_chunks limit reached"
+            else:
+                reason = "generation disabled"
+            print(f"\n=== Exclude from LLM processing === {reason}")
         print(
             f"\n[{result['rank']}] score={result['score']:.4f}  "
             f"recall={result['recall_score']:.4f}  "
